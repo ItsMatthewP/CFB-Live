@@ -2,6 +2,9 @@
 
 import React from "react";
 
+/** Number of recent scoring plays to display per card */
+const MAX_PLAYS = 5;
+
 /** Shape returned by /api/games */
 export type WireGame = {
   id: string;
@@ -31,19 +34,26 @@ function fallbackAbbr(name: string | undefined) {
     .toUpperCase();
 }
 
-export default function GameCard({ game }: { game: WireGame }) {
-  // Build two most-recent play lines (formatted)
-  const playLines = React.useMemo<string[]>(() => {
-    if (!game?.plays) {
-      return [
-        "(OSU): Tom Smith 7yd TD Run",
-        "(TEX): Jane Doe to John Roe for a 22yd TD Pass",
-      ];
-    }
+/** Build placeholder lines in the requested format when no real plays exist */
+function placeholderLines(): string[] {
+  return [
+    "(OSU): Tom Smith 7yd TD Run",
+    "(TEX): Jane Doe to John Roe for a 22yd TD Pass",
+    "(ALA): K. Parker 35yd FG",
+    "(FSU): D. Hill 4yd TD Run",
+    "(UGA): J. Beck to B. Bowers 18yd TD Pass",
+  ].slice(0, MAX_PLAYS);
+}
 
-    // Case 1: API already sent strings
+export default function GameCard({ game }: { game: WireGame }) {
+  // Build up to MAX_PLAYS most-recent play lines (formatted)
+  const playLines = React.useMemo<string[]>(() => {
+    if (!game?.plays) return placeholderLines();
+
+    // Case 1: API already sent formatted strings
     if (typeof game.plays[0] === "string") {
-      return (game.plays as string[]).slice(-2);
+      const lines = (game.plays as string[]).filter(Boolean);
+      return lines.length ? lines.slice(-MAX_PLAYS) : placeholderLines();
     }
 
     // Case 2: raw ScoringPlays from SportsDataIO
@@ -60,27 +70,21 @@ export default function GameCard({ game }: { game: WireGame }) {
         const desc = (p.Description || "").trim();
         if (!desc) return null;
 
-        let abbr = homeAbbr; // default to home if we can't tell
+        let abbr = homeAbbr; // default if unknown
         if (game.meta?.homeTeamId && game.meta?.awayTeamId && p.ScoringTeamID != null) {
           abbr =
             p.ScoringTeamID === game.meta.homeTeamId
               ? homeAbbr
               : p.ScoringTeamID === game.meta.awayTeamId
               ? awayAbbr
-              : homeAbbr; // unknown id -> home fallback
+              : homeAbbr; // fallback if id doesn't match either
         }
 
         return `(${abbr}): ${desc}`;
       })
       .filter((s): s is string => !!s);
 
-    const lastTwo = lines.slice(-2);
-    return lastTwo.length
-      ? lastTwo
-      : [
-          "(ABR): Play Description",
-          "(ABR): Play Description",
-        ];
+    return lines.length ? lines.slice(-MAX_PLAYS) : placeholderLines();
   }, [game]);
 
   return (
@@ -94,7 +98,7 @@ export default function GameCard({ game }: { game: WireGame }) {
         {game.bottom.right ? <span className="ml-2">{game.bottom.right}</span> : null}
       </div>
 
-      {/* Recent scoring plays (or placeholders) */}
+      {/* Recent scoring plays (up to MAX_PLAYS) */}
       <div className="mt-3 text-sm">
         {playLines.map((line, i) => (
           <div key={i}>{line}</div>
