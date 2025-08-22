@@ -1,8 +1,187 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-:root { color-scheme: dark; }
-body { @apply bg-zinc-950 text-zinc-100; }
-.card { @apply rounded-2xl bg-zinc-900/70 border border-zinc-800 shadow-lg; }
-.badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-zinc-800; }
+/* ---------- Theme ---------- */
+:root {
+    --bg: #f5f8ff;
+    --card: #e6eefc;
+    --card-border: #c5d6fb;
+    --ink: #0f172a;
+    --muted: #475569;
+    --brand: #2563eb;
+    --brand-ink: #ffffff;
+    --shadow-3d: 0 14px 28px rgba(37, 99, 235, 0.20), 0 8px 12px rgba(15, 23, 42, 0.10);
+    --inset: inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(0,0,0,0.04);
+  }
+  
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    font-size: 18px;
+    line-height: 1.5;
+  }
+  
+  /* ---------- Shell ---------- */
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 28px 20px 56px;
+  }
+  
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: #f7faff;
+    border-bottom: 1px solid var(--card-border);
+  }
+  
+  .site-header-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 12px 20px;
+    text-align: center; /* center header row */
+  }
+  
+  .brand-row {
+    display: inline-flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+  
+  .brand-title {
+    font-size: 28px; /* smaller per your request */
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  
+  .brand-sep { opacity: 0.6; font-weight: 700; }
+  
+  .header-link {
+    color: var(--brand);
+    font-weight: 800;
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    padding-bottom: 1px;
+    cursor: pointer;
+  }
+  .header-link:hover { border-color: var(--brand); }
+  
+  /* ---------- Cards ---------- */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    padding: 20px;
+    margin-top: 20px;
+    box-shadow: var(--shadow-3d);
+  }
+  
+  .controls { display: grid; gap: 16px; }
+  
+  /* ---------- Inputs & Buttons ---------- */
+  .label {
+    display: block;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  
+  .row { display: flex; gap: 12px; align-items: center; }
+  
+  .textbox {
+    flex: 1;
+    font-size: 20px;
+    padding: 18px 18px;
+    border-radius: 12px;
+    border: 1px solid var(--card-border);
+    background: #fff;
+    box-shadow: var(--inset);
+    outline: none;
+  }
+  .textbox:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 6px rgba(37,99,235,0.25), var(--inset);
+  }
+  
+  .btn {
+    appearance: none;
+    border: 1px solid #1e50bd;
+    background: var(--brand);
+    color: var(--brand-ink);
+    padding: 12px 18px;
+    font-size: 18px;
+    font-weight: 700;
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 8px 16px rgba(37, 99, 235, 0.35);
+    transition: transform 80ms ease, filter 120ms ease;
+    margin-left: 10px;
+    margin-right: 10px;
+  }
+  .btn:hover { filter: brightness(1.05); }
+  .btn:active { transform: translateY(1px); }
+  
+  /* ---------- Team chips ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 999px;
+    background: #f0f5ff; border: 1px solid var(--card-border);
+    box-shadow: 0 4px 8px rgba(15,23,42,0.08);
+    font-weight: 600;
+  }
+  
+  /* Reusable "x" pill (same look as chip close) */
+  .x {
+    display: grid; place-items: center;
+    width: 24px; height: 24px;
+    border-radius: 999px;
+    background: var(--card-border);
+    color: var(--ink);
+    border: 0;
+    cursor: pointer;
+  }
+  
+  /* ---------- Game card ---------- */
+  .game-title { margin: 0 0 6px; font-size: 28px; font-weight: 900; }
+  .game-sub   { margin: 0; font-size: 24px; font-weight: 800; white-space: pre; }
+  .game-status{ margin-left: 0; color: var(--muted); font-weight: 700; }
+  .plays      { margin-top: 14px; display: grid; gap: 6px; font-size: 19px; }
+  
+  /* ---------- Grid ---------- */
+  .grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
+  @media (min-width: 860px) { .grid { grid-template-columns: 1fr 1fr; } }
+  
+  .debug { margin-top: 8px; font-size: 14px; color: var(--muted); }
+  
+  /* ---------- Modal / Popup ---------- */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45); /* dim overlay */
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .modal {
+    width: min(680px, 92vw);
+    border-radius: 18px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    box-shadow: var(--shadow-3d);
+    padding: 22px;
+    position: relative;
+  }
+  
+  .modal-close { position: absolute; top: 12px; right: 12px; }
+  
+  /* Dim the main content while modal is open */
+  .body-dim .container { opacity: 0.5; transition: opacity 120ms ease; }
+  

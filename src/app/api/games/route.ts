@@ -1,116 +1,95 @@
 // src/app/api/games/route.ts
 import { NextResponse } from "next/server";
-import teams from "@/data/teams.json";
 
 export const dynamic = "force-dynamic";
 
-const API_KEY = process.env.SPORTSDATA_API_KEY!;
-const BASE_SCORES = "https://api.sportsdata.io/v3/cfb/scores/json";
-const BASE_STATS  = "https://api.sportsdata.io/v3/cfb/stats/json";
-
-type TeamRow = { TeamID: number; School: string; Abbreviation?: string };
-const ALL = (teams as TeamRow[]).filter(t => !!t.School);
-const SCHOOL_TO_ROW = new Map(ALL.map(t => [t.School.trim().toLowerCase(), t]));
-const ID_TO_ROW = new Map(ALL.map(t => [t.TeamID, t]));
-
-function targetDateISO(): string {
-  const now = new Date();
-  const min = new Date("2025-08-30T00:00:00");
-  const use = now < min ? min : now;
-  const y = use.getFullYear(), m = String(use.getMonth()+1).padStart(2,"0"), d = String(use.getDate()).padStart(2,"0");
-  return `${y}-${m}-${d}`;
-}
-function pad2(v: unknown) { const n = Number.isFinite(Number(v)) ? Number(v) : 0; return String(n).padStart(2,"0"); }
-function ordinal(n: number){ if(n===1) return "1st"; if(n===2) return "2nd"; if(n===3) return "3rd"; return `${n}th`; }
-function formatPeriodClockFromRow(row: any): string {
-  const periodRaw = row?.Quarter ?? row?.Period ?? row?.CurrentQuarter ?? null;
-  const mm = row?.TimeRemainingMinutes ?? row?.Minutes ?? null;
-  const ss = row?.TimeRemainingSeconds ?? row?.Seconds ?? null;
-  const status = String(row?.Status || "").toUpperCase();
-  const label = String(periodRaw ?? "").toUpperCase();
-  if (label === "F" || label === "F/OT" || status === "FINAL") return "Final";
-  if (label === "HALF" || label === "HALFTIME") return "Halftime";
-  if (label === "OT" || label === "OVERTIME") return (mm!=null||ss!=null)?`OT ${pad2(mm)}:${pad2(ss)}`:"OT";
-  const q = Number(label || periodRaw);
-  if (Number.isFinite(q) && q>=1) return `${ordinal(q)} ${pad2(mm)}:${pad2(ss)}`;
-  if (mm!=null||ss!=null) return `${pad2(mm)}:${pad2(ss)}`;
-  return row?.Status || "Scheduled";
+function statusLabel(g: any) {
+  const st = (g?.gameState || g?.state || g?.status || "").toString().toLowerCase();
+  const period = g?.currentPeriod ?? g?.period ?? g?.quarter ?? "";
+  const clock  = g?.contestClock ?? g?.displayClock ?? g?.time ?? g?.clock ?? "";
+  if (/final/.test(st)) return "Final";
+  if (/live|in_progress/.test(st)) return `${period ? `Q${period} ` : ""}${clock || ""}`.trim();
+  if (/pre|scheduled/.test(st)) return "Scheduled";
+  return (period ? `Q${period} ` : "") + (clock || st || "");
 }
 
-async function fetchJson(url: string) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`${res.status} ${url}`);
-  return res.json();
+function toSide(name: string, score: any, right: string, abbr?: string) {
+  return { name, score: Number(score ?? 0), right, abbr };
 }
 
-function isInProgress(row: any): boolean {
-  const status = String(row?.Status || "").toLowerCase();
-  const period = row?.Quarter ?? row?.Period ?? row?.CurrentQuarter;
-  return status.includes("progress") || Number(period) >= 1 || String(period).toUpperCase()==="OT";
-}
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const trackedCsv = searchParams.get("tracked") || "";
+  const tracked = trackedCsv.split(",").map(s => s.trim()).filter(Boolean);
+  if (!tracked.length) return NextResponse.json([], { headers: { "Cache-Control": "no-store" } });
 
-export async function GET(req: Request) {
-  if (!API_KEY) return NextResponse.json({ error: "SPORTSDATA_API_KEY missing" }, { status: 500 });
+  // Call our own scoreboard route (same-origin) to keep week logic in one place
+  const origin = new URL(request.url).origin;
+  const sbRes = await fetch(`${origin}/api/scoreboard?` + new URLSearchParams({ tracked: tracked.join(",") }), { cache: "no-store" });
+  if (!sbRes.ok) return NextResponse.json({ error: `Scoreboard error ${sbRes.status}` }, { status: 502 });
+  const sb = await sbRes.json();
+  const games = Array.isArray(sb?.games) ? sb.games : [];
 
-  const { searchParams } = new URL(req.url);
-  const trackedCsv = (searchParams.get("tracked") || "").trim();
-  if (!trackedCsv) return NextResponse.json([]);
+  // Map to GameCard shape and attach plays
+  const out: any[] = [];
+  for (const g of games) {
+    const id = (() => {
+      const m = /\/game\/(\d+)/.exec(g?.url || "");
+      return m ? m[1] : (g?.gameID || g?.id || "").toString();
+    })();
+    if (!id) continue;
 
-  // exact School -> TeamID
-  const wantedIds = trackedCsv
-    .split(",").map(s => s.trim()).filter(Boolean)
-    .map(s => SCHOOL_TO_ROW.get(s.toLowerCase())?.TeamID)
-    .filter((id): id is number => typeof id === "number");
+    const homeName = g?.home?.names?.short ?? g?.homeTeam ?? g?.home?.name ?? "";
+    const awayName = g?.away?.names?.short ?? g?.awayTeam ?? g?.away?.name ?? "";
+    const homeScore = g?.home?.score ?? g?.homePoints ?? g?.home_score ?? 0;
+    const awayScore = g?.away?.score ?? g?.awayPoints ?? g?.away_score ?? 0;
+    const state = g?.gameState ?? g?.state ?? g?.status ?? "";
+    const right = statusLabel(g);
 
-  if (!wantedIds.length) return NextResponse.json([]);
+    // tracked-on-top
+    const trackedSet = new Set(tracked.map(s => s.toLowerCase()));
+    const homeIsTracked = trackedSet.has(String(homeName).toLowerCase());
+    const top = homeIsTracked ? toSide(homeName, homeScore, right, g?.home?.names?.char6)
+                              : toSide(awayName, awayScore, right, g?.away?.names?.char6);
+    const bottom = homeIsTracked ? toSide(awayName, awayScore, right, g?.away?.names?.char6)
+                                 : toSide(homeName, homeScore, right, g?.home?.names?.char6);
 
-  // 1) ScoresBasic by date
-  const date = targetDateISO();
-  const scoresUrl = `${BASE_SCORES}/ScoresBasic/${encodeURIComponent(date)}?key=${encodeURIComponent(API_KEY)}`;
-  const all = await fetchJson(scoresUrl);
+    // Fetch scoring plays
+    let plays: string[] = [];
+    try {
+      const p = await fetch(`${origin}/api/plays?` + new URLSearchParams({ gameId: id }), { cache: "no-store" });
+      if (p.ok) plays = await p.json();
+    } catch {}
 
-  // 2) Only games that include a tracked TeamID
-  const filtered = (Array.isArray(all) ? all : []).filter((g: any) => {
-    const h = g.HomeTeamID ?? g.HomeTeamId;
-    const a = g.AwayTeamID ?? g.AwayTeamId;
-    return wantedIds.includes(h) || wantedIds.includes(a);
-  });
-
-  // 3) For in-progress games, fetch ScoringPlays(last 5)
-  const enriched = await Promise.all(filtered.map(async (row: any) => {
-    const homeId = row.HomeTeamID ?? row.HomeTeamId;
-    const awayId = row.AwayTeamID ?? row.AwayTeamId;
-    const homeName = row.HomeTeamName || row.HomeTeamFullName || row.HomeTeam || row.HomeTeamKey || "Home";
-    const awayName = row.AwayTeamName || row.AwayTeamFullName || row.AwayTeam || row.AwayTeamKey || "Away";
-    const homeAbbr = (row.HomeTeam ?? row.HomeAbbreviation ?? "").toString().toUpperCase()
-      || (ID_TO_ROW.get(homeId)?.Abbreviation ?? "");
-    const awayAbbr = (row.AwayTeam ?? row.AwayAbbreviation ?? "").toString().toUpperCase()
-      || (ID_TO_ROW.get(awayId)?.Abbreviation ?? "");
-
-    let plays: Array<{ ScoringTeamID?: number | null; Description?: string | null }> = [];
-    if (isInProgress(row)) {
-      const gameId = row.GameID ?? row.ScoreID ?? row.GlobalGameID;
-      if (gameId != null) {
-        const spUrl = `${BASE_STATS}/ScoringPlays/${encodeURIComponent(gameId)}?key=${encodeURIComponent(API_KEY)}`;
-        try {
-          const sp = await fetchJson(spUrl);
-          const arr = Array.isArray(sp) ? sp : [];
-          plays = arr.slice(-5); // last 5 plays; GameCard formats them
-        } catch {
-          // ignore play fetch errors; leave plays empty
-        }
-      }
-    }
-
-    return {
-      id: String(row.GameID ?? row.ScoreID ?? row.GlobalGameID ?? `${homeName}@${awayName}-${row.DateTime || ""}`),
-      top:   { name: homeName,   abbr: homeAbbr,   score: Number(row.HomeTeamScore ?? row.HomeScore ?? 0) },
-      bottom:{ name: awayName,   abbr: awayAbbr,   score: Number(row.AwayTeamScore ?? row.AwayScore ?? 0), right: formatPeriodClockFromRow(row) },
+    out.push({
+      id: String(id),
+      top,
+      bottom,
       plays,
-      meta: { homeTeamId: homeId, awayTeamId: awayId },
-    };
-  }));
+      meta: {
+        homeChar6: g?.home?.names?.char6,
+        awayChar6: g?.away?.names?.char6,
+        state: state,
+        currentPeriod: g?.currentPeriod ?? g?.period ?? g?.quarter ?? "",
+        contestClock: g?.contestClock ?? g?.displayClock ?? g?.time ?? ""
+      }
+    });
+  }
 
-  enriched.sort((a, b) => a.id.localeCompare(b.id));
-  return NextResponse.json(enriched, { headers: { "Cache-Control": "no-store" } });
+  // order: live first, then upcoming by time, then finals by time desc
+  const live = out.filter((c) => /live|in_progress/i.test(String(c.meta?.state)));
+  const upc  = out.filter((c) => /pre|scheduled/i.test(String(c.meta?.state)));
+  const fin  = out.filter((c) => /final/i.test(String(c.meta?.state)));
+
+  const getStart = (c: any) => Number(
+    c?.meta?.startTimeEpoch ||
+    c?.startTimeEpoch ||
+    0
+  );
+
+  live.sort((a,b)=> getStart(a)-getStart(b));
+  upc.sort((a,b)=> getStart(a)-getStart(b));
+  fin.sort((a,b)=> getStart(b)-getStart(a));
+
+  return NextResponse.json([...live, ...upc, ...fin], { headers: { "Cache-Control": "no-store" } });
 }
