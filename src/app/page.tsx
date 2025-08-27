@@ -1,11 +1,13 @@
-// src/app/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import GameCard, { Game } from "@/components/GameCard";
 
 /* Persist tracked teams for the session (until tab closes) */
-const KEY = "cfb_tracked_csv";
+const TEAMS_KEY = "cfb_tracked_csv";
+const WEEK_KEY  = "cfb_week";
+const YEAR_KEY  = "cfb_year";
+
 const getSession = (k: string, fb: string) =>
   typeof window === "undefined" ? fb : sessionStorage.getItem(k) ?? fb;
 const setSession = (k: string, v: string) => {
@@ -13,15 +15,19 @@ const setSession = (k: string, v: string) => {
 };
 
 export default function Page() {
-  const [trackedCsv, setTrackedCsv] = useState<string>(() => getSession(KEY, ""));
+  const [trackedCsv, setTrackedCsv] = useState<string>(() => getSession(TEAMS_KEY, ""));
   const [input, setInput] = useState("");
+  const [week, setWeek] = useState<string>(() => getSession(WEEK_KEY, ""));
+  const [year, setYear] = useState<string>(() => getSession(YEAR_KEY, "2025"));
 
   const trackedList = useMemo(
     () => trackedCsv.split(",").map((s) => s.trim()).filter(Boolean),
     [trackedCsv]
   );
 
-  useEffect(() => setSession(KEY, trackedCsv), [trackedCsv]);
+  useEffect(() => setSession(TEAMS_KEY, trackedCsv), [trackedCsv]);
+  useEffect(() => setSession(WEEK_KEY, week), [week]);
+  useEffect(() => setSession(YEAR_KEY, year), [year]);
 
   const [games, setGames] = useState<Game[]>([]);
   const [loadingTeams, setLoadingTeams] = useState<Set<string>>(new Set());
@@ -34,17 +40,20 @@ export default function Page() {
 
     setLoadingTeams(new Set(trackedList));
 
-    const qs = new URLSearchParams({ tracked: trackedList.join(",") }).toString();
+    const qs = new URLSearchParams({ tracked: trackedList.join(",") });
+    if (week) qs.set("week", week);
+    if (year) qs.set("year", year);
+
     try {
-      const res = await fetch(`/api/games?${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/games?${qs.toString()}`, { cache: "no-store" });
       const data: Game[] = await res.json();
       if (Array.isArray(data)) setGames(data);
     } catch {
-      // keep old cards if fetch fails
+      // leave current cards in place on failure
     } finally {
       setLoadingTeams(new Set());
     }
-  }, [trackedList]);
+  }, [trackedList, week, year]);
 
   // initial + every 10s
   useEffect(() => {
@@ -80,14 +89,36 @@ export default function Page() {
       {/* Controls */}
       <section className="card controls" aria-label="controls">
         <label className="label">Teams to track - comma separated</label>
-        <div className="row">
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
           <input
             className="textbox"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
+            placeholder='e.g. "Tennessee, Michigan"'
+            style={{ minWidth: 260 }}
           />
+
+        {/* NEW: Week + Year inputs */}
+          <input
+            className="textbox"
+            value={week}
+            onChange={(e) => setWeek(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))}
+            placeholder="Week (1-16)"
+            title="College football week number"
+            style={{ width: 120 }}
+          />
+          <input
+            className="textbox"
+            value={year}
+            onChange={(e) => setYear(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+            placeholder="Year (e.g., 2025)"
+            title="Season year"
+            style={{ width: 140 }}
+          />
+
           <button className="btn" onClick={addTeam}>Add</button>
+          <button className="btn" onClick={fetchGames}>Refresh</button>
         </div>
 
         <div className="chips">
@@ -106,14 +137,13 @@ export default function Page() {
           <div className="card">No teams tracked</div>
         ) : (
           trackedList.map((team) => {
-            const teamLc = team.toLowerCase();
-            // find first game whose top/bottom matches this team
-            const game = games.find((g) =>
-              g?.top?.name?.toLowerCase() === teamLc || g?.bottom?.name?.toLowerCase() === teamLc
+            const game = games.find(
+              (g) =>
+                g.top?.name?.toLowerCase() === team.toLowerCase() ||
+                g.bottom?.name?.toLowerCase() === team.toLowerCase()
             );
 
             if (loadingTeams.has(team) && !game) {
-              // Skeleton / placeholder card for initial load
               return (
                 <div className="card" key={team}>
                   <h3>{team}</h3>
