@@ -58,7 +58,7 @@ export default function Page() {
   // initial + every 10s
   useEffect(() => {
     fetchGames();
-    const id = setInterval(fetchGames, 10_000);
+    const id = setInterval(fetchGames, 5_000);
     return () => clearInterval(id);
   }, [fetchGames]);
 
